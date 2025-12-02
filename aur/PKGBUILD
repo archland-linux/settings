@@ -19,12 +19,12 @@ source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-    cd "$pkgname-$pkgver"
+    cd "settings-$pkgver"
     arch-meson build
     meson compile -C build
 }
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "settings-$pkgver"
     meson install -C build --destdir "$pkgdir"
 }
