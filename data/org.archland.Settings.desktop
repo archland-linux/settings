@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Archland Settings
+Comment=Configure your Archland desktop
+Exec=archland-settings
+Icon=org.archland.Settings
+Terminal=false
+Type=Application
+Categories=Settings;DesktopSettings;GTK;
+Keywords=settings;preferences;archland;desktop;appearance;
+StartupNotify=true

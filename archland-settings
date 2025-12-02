@@ -1,0 +1,284 @@
+#!/usr/bin/env gjs
+
+imports.gi.versions.Gtk = '4.0';
+imports.gi.versions.Adw = '1';
+
+const { Gtk, Adw, Gio, GLib, Gdk } = imports.gi;
+
+const CONFIG_DIR = GLib.build_filenamev([GLib.get_home_dir(), '.config', 'archland']);
+const CONFIG_FILE = GLib.build_filenamev([CONFIG_DIR, 'settings.json']);
+
+class ArchlandSettings {
+    constructor() {
+        this.settings = this.loadSettings();
+    }
+
+    loadSettings() {
+        const defaults = {
+            wallpaper: '',
+            font: 'JetBrainsMono Nerd Font',
+            fontSize: 12,
+            colors: {
+                background: '#08070D',
+                foreground: '#fbf7dc'
+            }
+        };
+
+        try {
+            const file = Gio.File.new_for_path(CONFIG_FILE);
+            if (file.query_exists(null)) {
+                const [ok, contents] = file.load_contents(null);
+                if (ok) {
+                    const data = JSON.parse(new TextDecoder().decode(contents));
+                    return { ...defaults, ...data };
+                }
+            }
+        } catch (e) {
+            log(`Error loading settings: ${e.message}`);
+        }
+
+        return defaults;
+    }
+
+    saveSettings() {
+        try {
+            const dir = Gio.File.new_for_path(CONFIG_DIR);
+            if (!dir.query_exists(null)) {
+                dir.make_directory_with_parents(null);
+            }
+
+            const file = Gio.File.new_for_path(CONFIG_FILE);
+            const contents = JSON.stringify(this.settings, null, 2);
+            file.replace_contents(contents, null, false,
+                Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        } catch (e) {
+            log(`Error saving settings: ${e.message}`);
+        }
+    }
+
+    get(key) {
+        return this.settings[key];
+    }
+
+    set(key, value) {
+        this.settings[key] = value;
+        this.saveSettings();
+    }
+}
+
+class ArchlandSettingsApp {
+    constructor() {
+        this.application = new Adw.Application({
+            application_id: 'org.archland.Settings',
+            flags: Gio.ApplicationFlags.DEFAULT_FLAGS,
+        });
+
+        this.settings = new ArchlandSettings();
+
+        this.application.connect('activate', this.onActivate.bind(this));
+    }
+
+    onActivate() {
+        const window = new Adw.ApplicationWindow({
+            application: this.application,
+            title: 'Archland Settings',
+            default_width: 600,
+            default_height: 500,
+        });
+
+        const view = new Adw.ToolbarView();
+        
+        // Header bar
+        const headerBar = new Adw.HeaderBar();
+        view.add_top_bar(headerBar);
+
+        // Main content
+        const scrolled = new Gtk.ScrolledWindow({
+            hscrollbar_policy: Gtk.PolicyType.NEVER,
+            vexpand: true,
+        });
+
+        const clamp = new Adw.Clamp({
+            maximum_size: 600,
+            margin_top: 24,
+            margin_bottom: 24,
+            margin_start: 12,
+            margin_end: 12,
+        });
+
+        const mainBox = new Gtk.Box({
+            orientation: Gtk.Orientation.VERTICAL,
+            spacing: 24,
+        });
+
+        // Appearance section
+        mainBox.append(this.createAppearanceSection());
+
+        clamp.set_child(mainBox);
+        scrolled.set_child(clamp);
+        view.set_content(scrolled);
+        window.set_content(view);
+        window.present();
+    }
+
+    createAppearanceSection() {
+        const group = new Adw.PreferencesGroup({
+            title: 'Appearance',
+            description: 'Customize the look and feel of your desktop',
+        });
+
+        // Wallpaper
+        const wallpaperRow = new Adw.ActionRow({
+            title: 'Wallpaper',
+            subtitle: this.settings.get('wallpaper') || 'No wallpaper selected',
+        });
+
+        const wallpaperButton = new Gtk.Button({
+            label: 'Choose',
+            valign: Gtk.Align.CENTER,
+        });
+        wallpaperButton.connect('clicked', () => this.chooseWallpaper(wallpaperRow));
+        wallpaperRow.add_suffix(wallpaperButton);
+        group.add(wallpaperRow);
+
+        // Font
+        const fontRow = new Adw.ActionRow({
+            title: 'Font',
+            subtitle: 'System font for the desktop',
+        });
+
+        const fontButton = new Gtk.FontDialogButton({
+            valign: Gtk.Align.CENTER,
+            dialog: new Gtk.FontDialog(),
+        });
+        
+        const currentFont = `${this.settings.get('font')} ${this.settings.get('fontSize')}`;
+        fontButton.set_font_desc(Pango.FontDescription.from_string(currentFont));
+        
+        fontButton.connect('notify::font-desc', () => {
+            const desc = fontButton.get_font_desc();
+            if (desc) {
+                this.settings.set('font', desc.get_family());
+                this.settings.set('fontSize', desc.get_size() / Pango.SCALE);
+            }
+        });
+        fontRow.add_suffix(fontButton);
+        group.add(fontRow);
+
+        // Background color
+        const bgColorRow = new Adw.ActionRow({
+            title: 'Background Color',
+            subtitle: 'Primary background color',
+        });
+
+        const bgColorButton = new Gtk.ColorDialogButton({
+            valign: Gtk.Align.CENTER,
+            dialog: new Gtk.ColorDialog(),
+        });
+        
+        const bgColor = new Gdk.RGBA();
+        bgColor.parse(this.settings.get('colors').background);
+        bgColorButton.set_rgba(bgColor);
+        
+        bgColorButton.connect('notify::rgba', () => {
+            const rgba = bgColorButton.get_rgba();
+            const hex = this.rgbaToHex(rgba);
+            const colors = this.settings.get('colors');
+            colors.background = hex;
+            this.settings.set('colors', colors);
+        });
+        bgColorRow.add_suffix(bgColorButton);
+        group.add(bgColorRow);
+
+        // Foreground color
+        const fgColorRow = new Adw.ActionRow({
+            title: 'Foreground Color',
+            subtitle: 'Primary text color',
+        });
+
+        const fgColorButton = new Gtk.ColorDialogButton({
+            valign: Gtk.Align.CENTER,
+            dialog: new Gtk.ColorDialog(),
+        });
+        
+        const fgColor = new Gdk.RGBA();
+        fgColor.parse(this.settings.get('colors').foreground);
+        fgColorButton.set_rgba(fgColor);
+        
+        fgColorButton.connect('notify::rgba', () => {
+            const rgba = fgColorButton.get_rgba();
+            const hex = this.rgbaToHex(rgba);
+            const colors = this.settings.get('colors');
+            colors.foreground = hex;
+            this.settings.set('colors', colors);
+        });
+        fgColorRow.add_suffix(fgColorButton);
+        group.add(fgColorRow);
+
+        return group;
+    }
+
+    chooseWallpaper(row) {
+        const dialog = new Gtk.FileDialog({
+            title: 'Choose Wallpaper',
+        });
+
+        const filter = new Gtk.FileFilter();
+        filter.set_name('Images');
+        filter.add_mime_type('image/jpeg');
+        filter.add_mime_type('image/png');
+        filter.add_mime_type('image/webp');
+        
+        const filters = new Gio.ListStore({ item_type: Gtk.FileFilter });
+        filters.append(filter);
+        dialog.set_filters(filters);
+        dialog.set_default_filter(filter);
+
+        const window = this.application.get_active_window();
+        dialog.open(window, null, (dialog, result) => {
+            try {
+                const file = dialog.open_finish(result);
+                if (file) {
+                    const path = file.get_path();
+                    this.settings.set('wallpaper', path);
+                    row.set_subtitle(path);
+                    this.applyWallpaper(path);
+                }
+            } catch (e) {
+                // User cancelled
+            }
+        });
+    }
+
+    applyWallpaper(path) {
+        try {
+            // Copy wallpaper to ~/.config/archland/wallpaper
+            const destPath = GLib.build_filenamev([CONFIG_DIR, 'wallpaper']);
+            const source = Gio.File.new_for_path(path);
+            const dest = Gio.File.new_for_path(destPath);
+            source.copy(dest, Gio.FileCopyFlags.OVERWRITE, null, null);
+
+            // Reload hyprpaper
+            GLib.spawn_command_line_async('hyprctl hyprpaper reload');
+        } catch (e) {
+            log(`Error applying wallpaper: ${e.message}`);
+        }
+    }
+
+    rgbaToHex(rgba) {
+        const r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
+        const g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
+        const b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
+        return `#${r}${g}${b}`;
+    }
+
+    run(argv) {
+        return this.application.run(argv);
+    }
+}
+
+// Import Pango for font handling
+const Pango = imports.gi.Pango;
+
+const app = new ArchlandSettingsApp();
+app.run([imports.system.programInvocationName].concat(ARGV));

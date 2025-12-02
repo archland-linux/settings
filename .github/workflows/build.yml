@@ -1,0 +1,55 @@
+name: Build Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm git meson ninja gjs gtk4 libadwaita
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build with Meson
+        run: |
+          meson setup build
+          meson compile -C build
+
+      - name: Test installation
+        run: |
+          meson install -C build --destdir /tmp/install
+          test -f /tmp/install/usr/local/bin/archland-settings
+          test -f /tmp/install/usr/local/share/applications/org.archland.Settings.desktop
+
+  pkgbuild-test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git sudo
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create build user
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder .
+
+      - name: Test PKGBUILD syntax
+        run: |
+          su builder -c "cd aur && source PKGBUILD && echo 'PKGBUILD is valid'"

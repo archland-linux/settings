@@ -1,0 +1,55 @@
+name: Release to AUR
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  aur-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download release tarball and calculate SHA256
+        id: sha256
+        run: |
+          TARBALL_URL="https://github.com/${{ github.repository }}/archive/refs/tags/v${{ steps.version.outputs.version }}.tar.gz"
+          curl -sL "$TARBALL_URL" -o source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Update PKGBUILD
+        run: |
+          cd aur
+          # Update version
+          sed -i "s/pkgver=.*/pkgver=${{ steps.version.outputs.version }}/" PKGBUILD
+          # Reset pkgrel to 1 for new version
+          sed -i "s/pkgrel=.*/pkgrel=1/" PKGBUILD
+          # Update URL with actual repository
+          sed -i "s|url=.*|url=\"https://github.com/${{ github.repository }}\"|" PKGBUILD
+          sed -i "s|yourusername/archland-settings|${{ github.repository }}|g" PKGBUILD
+          # Update SHA256
+          sed -i "s/sha256sums=.*/sha256sums=('${{ steps.sha256.outputs.sha256 }}')/" PKGBUILD
+
+      - name: Generate .SRCINFO
+        uses: docker://archlinux:latest
+        with:
+          args: bash -c "pacman -Sy --noconfirm pacman-contrib && cd aur && makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: archland-settings
+          pkgbuild: ./aur/PKGBUILD
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to v${{ steps.version.outputs.version }}"
+          force_push: true
