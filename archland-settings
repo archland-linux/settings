@@ -3,7 +3,7 @@
 imports.gi.versions.Gtk = '4.0';
 imports.gi.versions.Adw = '1';
 
-const { Gtk, Adw, Gio, GLib, Gdk } = imports.gi;
+const { Gtk, Adw, Gio, GLib } = imports.gi;
 
 const CONFIG_DIR = GLib.build_filenamev([GLib.get_home_dir(), '.config', 'archland']);
 const CONFIG_FILE = GLib.build_filenamev([CONFIG_DIR, 'settings.json']);
@@ -16,12 +16,6 @@ class ArchlandSettings {
     loadSettings() {
         const defaults = {
             wallpaper: '',
-            font: 'JetBrainsMono Nerd Font',
-            fontSize: 12,
-            colors: {
-                background: '#08070D',
-                foreground: '#fbf7dc'
-            }
         };
 
         try {
@@ -141,80 +135,6 @@ class ArchlandSettingsApp {
         wallpaperRow.add_suffix(wallpaperButton);
         group.add(wallpaperRow);
 
-        // Font
-        const fontRow = new Adw.ActionRow({
-            title: 'Font',
-            subtitle: 'System font for the desktop',
-        });
-
-        const fontButton = new Gtk.FontDialogButton({
-            valign: Gtk.Align.CENTER,
-            dialog: new Gtk.FontDialog(),
-        });
-        
-        const currentFont = `${this.settings.get('font')} ${this.settings.get('fontSize')}`;
-        fontButton.set_font_desc(Pango.FontDescription.from_string(currentFont));
-        
-        fontButton.connect('notify::font-desc', () => {
-            const desc = fontButton.get_font_desc();
-            if (desc) {
-                this.settings.set('font', desc.get_family());
-                this.settings.set('fontSize', desc.get_size() / Pango.SCALE);
-            }
-        });
-        fontRow.add_suffix(fontButton);
-        group.add(fontRow);
-
-        // Background color
-        const bgColorRow = new Adw.ActionRow({
-            title: 'Background Color',
-            subtitle: 'Primary background color',
-        });
-
-        const bgColorButton = new Gtk.ColorDialogButton({
-            valign: Gtk.Align.CENTER,
-            dialog: new Gtk.ColorDialog(),
-        });
-        
-        const bgColor = new Gdk.RGBA();
-        bgColor.parse(this.settings.get('colors').background);
-        bgColorButton.set_rgba(bgColor);
-        
-        bgColorButton.connect('notify::rgba', () => {
-            const rgba = bgColorButton.get_rgba();
-            const hex = this.rgbaToHex(rgba);
-            const colors = this.settings.get('colors');
-            colors.background = hex;
-            this.settings.set('colors', colors);
-        });
-        bgColorRow.add_suffix(bgColorButton);
-        group.add(bgColorRow);
-
-        // Foreground color
-        const fgColorRow = new Adw.ActionRow({
-            title: 'Foreground Color',
-            subtitle: 'Primary text color',
-        });
-
-        const fgColorButton = new Gtk.ColorDialogButton({
-            valign: Gtk.Align.CENTER,
-            dialog: new Gtk.ColorDialog(),
-        });
-        
-        const fgColor = new Gdk.RGBA();
-        fgColor.parse(this.settings.get('colors').foreground);
-        fgColorButton.set_rgba(fgColor);
-        
-        fgColorButton.connect('notify::rgba', () => {
-            const rgba = fgColorButton.get_rgba();
-            const hex = this.rgbaToHex(rgba);
-            const colors = this.settings.get('colors');
-            colors.foreground = hex;
-            this.settings.set('colors', colors);
-        });
-        fgColorRow.add_suffix(fgColorButton);
-        group.add(fgColorRow);
-
         return group;
     }
 
@@ -252,33 +172,29 @@ class ArchlandSettingsApp {
 
     applyWallpaper(path) {
         try {
-            // Copy wallpaper to ~/.config/archland/wallpaper
+            // Symlink wallpaper to ~/.config/archland/wallpaper
             const destPath = GLib.build_filenamev([CONFIG_DIR, 'wallpaper']);
-            const source = Gio.File.new_for_path(path);
             const dest = Gio.File.new_for_path(destPath);
-            source.copy(dest, Gio.FileCopyFlags.OVERWRITE, null, null);
+            
+            // Remove existing file/symlink if it exists
+            if (dest.query_exists(null)) {
+                dest.delete(null);
+            }
+            
+            // Create symlink to the selected wallpaper
+            dest.make_symbolic_link(path, null);
 
             // Reload hyprpaper
-            GLib.spawn_command_line_async('hyprctl hyprpaper reload');
+            GLib.spawn_command_line_async(`hyprctl hyprpaper reload ,${destPath}`);
         } catch (e) {
             log(`Error applying wallpaper: ${e.message}`);
         }
-    }
-
-    rgbaToHex(rgba) {
-        const r = Math.round(rgba.red * 255).toString(16).padStart(2, '0');
-        const g = Math.round(rgba.green * 255).toString(16).padStart(2, '0');
-        const b = Math.round(rgba.blue * 255).toString(16).padStart(2, '0');
-        return `#${r}${g}${b}`;
     }
 
     run(argv) {
         return this.application.run(argv);
     }
 }
-
-// Import Pango for font handling
-const Pango = imports.gi.Pango;
 
 const app = new ArchlandSettingsApp();
 app.run([imports.system.programInvocationName].concat(ARGV));
