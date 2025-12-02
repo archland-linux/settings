@@ -41,7 +41,7 @@ jobs:
       - name: Generate .SRCINFO
         uses: docker://archlinux:latest
         with:
-          args: bash -c "pacman -Sy --noconfirm pacman-contrib && cd aur && makepkg --printsrcinfo > .SRCINFO"
+          args: bash -c "pacman -Sy --noconfirm pacman-contrib && useradd -m builder && chown -R builder:builder aur && cd aur && su builder -c 'makepkg --printsrcinfo > .SRCINFO'"
 
       - name: Publish to AUR
         uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
